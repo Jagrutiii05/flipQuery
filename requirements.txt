@@ -14,3 +14,4 @@ google-genai
 requests
 # pydantic==2.8.2
 # pydantic-core==2.20.1
+gunicorn
