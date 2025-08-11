@@ -37,7 +37,7 @@ Instructions:
 - Format the response in a readable way with proper spacing and structure"""
 
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-2.0-flash",
             contents=[f"{system_prompt}\n\nQuestion: {query}"]
         )
             
