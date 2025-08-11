@@ -6,7 +6,7 @@ Upload a PDF and chat with its contents. This app performs Retrieval-Augmented G
 - **PDF upload**: Extracts text with PyPDF2 and splits into chunks
 - **Embeddings**: `all-MiniLM-L6-v2` via sentence-transformers
 - **Vector DB**: Pinecone for similarity search
-- **LLM**: Gemini 2.5 Flash (`google-genai`)
+- **LLM**: Gemini 2.0 Flash (`google-genai`)
 - **UI**: Clean web UI at `/` with drag-and-drop upload and chat
 
 ### Tech Stack
