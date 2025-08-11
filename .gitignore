@@ -1,0 +1,9 @@
+__pycache__/
+
+dist/
+lib/
+.env
+.venv
+.idea
+
+uploads/

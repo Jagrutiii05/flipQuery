@@ -1,0 +1,614 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FlipQuery - Your PDF Query Assistant</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='index.css') }}">
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-robot"></i>
+                    <span>FlipQuery</span>
+                </div>
+                <div class="document-info" id="documentInfo" style="display: none;">
+                    <i class="fas fa-file-pdf"></i>
+                    <span id="documentName">No document uploaded</span>
+                    <button class="btn-change-doc" id="changeDocBtn" title="Upload new document">
+                        <i class="fas fa-exchange-alt"></i>
+                    </button>
+                </div>
+            </div>
+        </header>
+
+        <div class="upload-progress" id="uploadProgress" style="display: none;">
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            <p class="progress-text" id="progressText">Processing your document...</p>
+        </div>
+
+        <!-- Upload Section -->
+        <div class="upload-section" id="uploadSection">
+            <div class="upload-container">
+                <div class="upload-header">
+                    <h1>Welcome to FlipQyery</h1>
+                    <p>Upload a PDF document to start chatting with your content</p>
+                </div>
+                
+                <div class="upload-area" id="uploadArea">
+                    <div class="upload-content">
+                        <i class="fas fa-cloud-upload-alt upload-icon"></i>
+                        <h3>Drop your PDF here or click to browse</h3>
+                        <p>Supported format: PDF (Max 16MB)</p>
+                        <input type="file" id="fileInput" accept=".pdf" style="display: none;" multiple="false">
+                        <button class="btn-upload" id="browseBtn">
+                            <i class="fas fa-folder-open"></i>
+                            Browse Files
+                        </button>
+                    </div>
+                </div>
+
+            </div>
+        </div>
+
+        <!-- Chat Section -->
+        <div class="chat-section" id="chatSection" style="display: none;">
+            <div class="chat-container">
+                <div class="chat-messages" id="chatMessages">
+                    <div class="message assistant-message">
+                        <div class="message-avatar">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="message-content">
+                            <p>Hello! I've processed your document. You can now ask me questions about its content.</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="chat-input-container">
+                    <div class="chat-input-wrapper">
+                        <input 
+                            type="text" 
+                            id="chatInput" 
+                            placeholder="Ask me anything about your document..."
+                            maxlength="1000"
+                        >
+                        <button class="btn-send" id="sendBtn" disabled>
+                            <i class="fas fa-paper-plane"></i>
+                        </button>
+                    </div>
+                    <!-- <div class="input-footer">
+                        <small>Press Enter to send • <span id="charCount">0</span>/1000 characters</small>
+                    </div> -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Loading Overlay -->
+        <div class="loading-overlay" id="loadingOverlay" style="display: none;">
+            <div class="loading-content">
+                <div class="spinner"></div>
+                <p id="loadingText">Processing your request...</p>
+            </div>
+        </div>
+
+        <!-- Error Toast -->
+        <div class="error-toast" id="errorToast">
+            <i class="fas fa-exclamation-circle"></i>
+            <span id="errorMessage"></span>
+            <button class="toast-close" id="closeToast">&times;</button>
+        </div>
+    </div>
+
+    <script>
+        class RAGChatAssistant {
+            constructor() {
+                this.currentDocId = null;
+                this.currentFileName = null;
+                this.isProcessing = false;
+                // Use relative URL to avoid CORS issues
+                this.apiBaseUrl = '/api';
+                this.init();
+            }
+
+            init() {
+                this.bindEvents();
+                this.setupDragAndDrop();
+            }
+
+            bindEvents() {
+                // File input events
+                const fileInput = document.getElementById('fileInput');
+                const browseBtn = document.getElementById('browseBtn');
+                
+                // Use arrow functions to avoid binding issues
+                fileInput.addEventListener('change', (e) => {
+                    console.log('File input change event triggered');
+                    this.handleFileSelect(e);
+                });
+                
+                browseBtn.addEventListener('click', () => {
+                    console.log('Browse button clicked');
+                    fileInput.click();
+                });
+                
+                document.getElementById('changeDocBtn').addEventListener('click', this.showUploadSection.bind(this));
+
+                // Chat events
+                document.getElementById('chatInput').addEventListener('input', this.handleInputChange.bind(this));
+                document.getElementById('chatInput').addEventListener('keypress', this.handleKeyPress.bind(this));
+                document.getElementById('sendBtn').addEventListener('click', this.sendMessage.bind(this));
+
+                // Error toast
+                document.getElementById('closeToast').addEventListener('click', this.hideError.bind(this));
+            }
+
+            setupDragAndDrop() {
+                try {
+                    const uploadArea = document.getElementById('uploadArea');
+                    
+                    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                        uploadArea.addEventListener(eventName, this.preventDefaults, false);
+                    });
+
+                    ['dragenter', 'dragover'].forEach(eventName => {
+                        uploadArea.addEventListener(eventName, () => {
+                            uploadArea.classList.add('drag-over');
+                        }, false);
+                    });
+
+                    ['dragleave', 'drop'].forEach(eventName => {
+                        uploadArea.addEventListener(eventName, () => {
+                            uploadArea.classList.remove('drag-over');
+                        }, false);
+                    });
+
+                    uploadArea.addEventListener('drop', (e) => {
+                        console.log('File dropped');
+                        this.handleDrop(e);
+                    }, false);
+                    
+                    console.log('Drag and drop setup completed');
+                } catch (error) {
+                    console.error('Error setting up drag and drop:', error);
+                }
+            }
+
+            preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            handleDrop(e) {
+                const dt = e.dataTransfer;
+                const files = dt.files;
+                
+                if (files.length > 0) {
+                    this.processFile(files[0]);
+                }
+            }
+
+            handleFileSelect(e) {
+                try {
+                    console.log('handleFileSelect called');
+                    const file = e.target.files[0];
+                    if (file) {
+                        console.log('File selected:', file.name, file.size, file.type);
+                        
+                        // Re-enable file processing
+                        this.processFile(file);
+                    } else {
+                        console.log('No file selected');
+                    }
+                } catch (error) {
+                    console.error('Error handling file selection:', error);
+                    this.showError('Error selecting file. Please try again.');
+                }
+            }
+
+            async processFile(file) {
+                try {
+                    console.log('Starting file processing...');
+                    
+                    if (!this.validateFile(file)) {
+                        console.log('File validation failed');
+                        return;
+                    }
+
+                    // Check if server is running
+                    try {
+                        const healthResponse = await fetch('/health', { timeout: 5000 });
+                        if (!healthResponse.ok) {
+                            throw new Error('Server health check failed');
+                        }
+                        console.log('Server is running');
+                    } catch (error) {
+                        console.error('Server health check failed:', error);
+                        this.showError('Server is not responding. Please make sure the Flask app is running.');
+                        return;
+                    }
+
+                    this.showProgress();
+                    this.isProcessing = true;
+
+                    console.log('Creating FormData...');
+                    const formData = new FormData();
+                    formData.append('file', file);
+
+                    console.log('Sending upload request...');
+                    
+                    // Add timeout to prevent hanging
+                    const controller = new AbortController();
+                    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+                    
+                    const response = await fetch(`${this.apiBaseUrl}/upload`, {
+                        method: 'POST',
+                        body: formData,
+                        signal: controller.signal
+                    });
+                    
+                    clearTimeout(timeoutId);
+
+                    console.log('Response received:', response.status);
+                    const result = await response.json();
+
+                    if (response.ok) {
+                        console.log('Upload successful:', result);
+                        this.currentDocId = result.doc_id;
+                        this.currentFileName = result.filename;
+                        this.showChatSection();
+                        this.updateDocumentInfo(result.filename);
+                    } else {
+                        throw new Error(result.error || 'Upload failed');
+                    }
+                } catch (error) {
+                    console.error('Upload error:', error);
+                    
+                    if (error.name === 'AbortError') {
+                        this.showError('Upload timed out after 30 seconds. Please try with a smaller file.');
+                    } else {
+                        this.showError('Failed to upload document: ' + error.message);
+                    }
+                    
+                    this.hideProgress();
+                } finally {
+                    this.isProcessing = false;
+                }
+            }
+
+            validateFile(file) {
+                try {
+                    console.log('Validating file:', file.name, file.type, file.size);
+                    
+                    if (!file) {
+                        this.showError('No file selected');
+                        return false;
+                    }
+
+                    if (!file.type.includes('pdf')) {
+                        this.showError('Please select a PDF file');
+                        return false;
+                    }
+
+                    if (file.size > 16 * 1024 * 1024) { // 16MB
+                        this.showError('File size must be less than 16MB');
+                        return false;
+                    }
+
+                    if (file.size === 0) {
+                        this.showError('File is empty');
+                        return false;
+                    }
+
+                    console.log('File validation passed');
+                    return true;
+                } catch (error) {
+                    console.error('File validation error:', error);
+                    this.showError('Error validating file');
+                    return false;
+                }
+            }
+
+            showProgress() {
+                document.getElementById('uploadProgress').style.display = 'block';
+                
+                // Simulate progress
+                let progress = 0;
+                const progressFill = document.getElementById('progressFill');
+                const progressText = document.getElementById('progressText');
+                
+                const interval = setInterval(() => {
+                    progress += Math.random() * 15;
+                    if (progress > 90) progress = 90;
+                    
+                    progressFill.style.width = progress + '%';
+                    
+                    if (progress < 30) {
+                        progressText.textContent = 'Uploading document...';
+                    } else if (progress < 60) {
+                        progressText.textContent = 'Extracting text...';
+                    } else {
+                        progressText.textContent = 'Creating embeddings...';
+                    }
+                }, 200);
+
+                this.progressInterval = interval;
+            }
+
+            hideProgress() {
+                if (this.progressInterval) {
+                    clearInterval(this.progressInterval);
+                }
+                document.getElementById('uploadProgress').style.display = 'none';
+            }
+
+            showChatSection() {
+                this.hideProgress();
+                
+                // Complete progress bar
+                document.getElementById('progressFill').style.width = '100%';
+                document.getElementById('progressText').textContent = 'Document processed successfully!';
+                
+                setTimeout(() => {
+                    document.getElementById('uploadSection').style.display = 'none';
+                    document.getElementById('chatSection').style.display = 'block';
+                    document.getElementById('documentInfo').style.display = 'flex';
+                    document.getElementById('chatInput').focus();
+                }, 1000);
+            }
+
+            showUploadSection() {
+                document.getElementById('chatSection').style.display = 'none';
+                document.getElementById('uploadSection').style.display = 'block';
+                document.getElementById('documentInfo').style.display = 'none';
+                this.resetUpload();
+            }
+
+            resetUpload() {
+                document.getElementById('fileInput').value = '';
+                document.getElementById('uploadProgress').style.display = 'none';
+                document.getElementById('progressFill').style.width = '0%';
+            }
+
+            updateDocumentInfo(filename) {
+                document.getElementById('documentName').textContent = filename;
+            }
+
+            handleInputChange(e) {
+                const input = e.target;
+                const charCount = document.getElementById('charCount');
+                const sendBtn = document.getElementById('sendBtn');
+                
+                if (charCount) {
+                    charCount.textContent = input.value.length;
+                }
+                
+                if (sendBtn) {
+                    const shouldDisable = !input.value.trim() || this.isProcessing;
+                    sendBtn.disabled = shouldDisable;
+                }
+                
+                console.log('Input change - value length:', input.value.length);
+                console.log('Is processing:', this.isProcessing);
+                console.log('Send button disabled:', sendBtn ? sendBtn.disabled : 'button not found');
+            }
+
+            handleKeyPress(e) {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    this.sendMessage();
+                }
+            }
+
+            async sendMessage() {
+                console.log('sendMessage called');
+                const input = document.getElementById('chatInput');
+                const message = input.value.trim();
+                
+                console.log('Message:', message);
+                console.log('Is processing:', this.isProcessing);
+                
+                if (!message || this.isProcessing) {
+                    console.log('Returning early - no message or already processing');
+                    return;
+                }
+
+                console.log('Adding user message');
+                this.addMessage(message, 'user');
+                input.value = '';
+                this.updateCharCount();
+                this.isProcessing = true;
+
+                try {
+                    console.log('Showing typing indicator');
+                    this.showTypingIndicator();
+                    
+                    console.log('Sending request to:', `${this.apiBaseUrl}/query`);
+                    console.log('Request body:', { query: message, doc_id: this.currentDocId });
+                    
+                    const response = await fetch(`${this.apiBaseUrl}/query`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            query: message,
+                            doc_id: this.currentDocId
+                        })
+                    });
+
+                    console.log('Response status:', response.status);
+                    const result = await response.json();
+                    console.log('Response result:', result);
+
+                    this.hideTypingIndicator();
+
+                    if (response.ok) {
+                        console.log('Adding assistant message');
+                        this.addMessage(result.answer, 'assistant');
+                    } else {
+                        throw new Error(result.error || 'Failed to get response');
+                    }
+                } catch (error) {
+                    console.error('Error in sendMessage:', error);
+                    this.hideTypingIndicator();
+                    this.showError('Failed to send message: ' + error.message);
+                } finally {
+                    console.log('Setting isProcessing to false');
+                    this.isProcessing = false;
+                    const sendBtn = document.getElementById('sendBtn');
+                    if (sendBtn) {
+                        sendBtn.disabled = false;
+                    }
+                }
+            }
+
+            addMessage(content, type) {
+                const messagesContainer = document.getElementById('chatMessages');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `message ${type}-message`;
+
+                if (type === 'user') {
+                    messageDiv.innerHTML = `
+                        <div class="message-content">
+                            <p>${this.escapeHtml(content)}</p>
+                        </div>
+                        <div class="message-avatar">
+                            <i class="fas fa-user"></i>
+                        </div>
+                    `;
+                } else {
+                    messageDiv.innerHTML = `
+                        <div class="message-avatar">
+                            <i class="fas fa-robot"></i>
+                        </div>
+                        <div class="message-content">
+                            <div class="formatted-content">${this.formatResponse(content)}</div>
+                        </div>
+                    `;
+                }
+
+                messagesContainer.appendChild(messageDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+
+            showTypingIndicator() {
+                const messagesContainer = document.getElementById('chatMessages');
+                const typingDiv = document.createElement('div');
+                typingDiv.className = 'message assistant-message typing-message';
+                typingDiv.id = 'typingIndicator';
+                
+                typingDiv.innerHTML = `
+                    <div class="message-avatar">
+                        <i class="fas fa-robot"></i>
+                    </div>
+                    <div class="message-content">
+                        <div class="typing-dots">
+                            <span></span>
+                            <span></span>
+                            <span></span>
+                        </div>
+                    </div>
+                `;
+
+                messagesContainer.appendChild(typingDiv);
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+
+            hideTypingIndicator() {
+                const typingIndicator = document.getElementById('typingIndicator');
+                if (typingIndicator) {
+                    typingIndicator.remove();
+                }
+            }
+
+            updateCharCount() {
+                const input = document.getElementById('chatInput');
+                const charCount = document.getElementById('charCount');
+                const sendBtn = document.getElementById('sendBtn');
+                
+                if (charCount && input) {
+                    charCount.textContent = input.value.length;
+                }
+                
+                if (sendBtn && input) {
+                    sendBtn.disabled = !input.value.trim() || this.isProcessing;
+                }
+            }
+
+            showError(message) {
+                const errorToast = document.getElementById('errorToast');
+                const errorMessage = document.getElementById('errorMessage');
+                
+                errorMessage.textContent = message;
+                errorToast.classList.add('show');
+
+                setTimeout(() => {
+                    this.hideError();
+                }, 5000);
+            }
+
+            hideError() {
+                document.getElementById('errorToast').classList.remove('show');
+            }
+
+
+
+            formatResponse(text) {
+                console.log('formatResponse called with:', text);
+                if (!text) {
+                    console.log('No text provided, returning empty string');
+                    return '';
+                }
+                
+                // First escape HTML to prevent XSS
+                let formatted = this.escapeHtml(text);
+                console.log('After escapeHtml:', formatted);
+                
+                // Convert markdown-style formatting to HTML
+                
+                // Bold text: **text** -> <strong>text</strong>
+                formatted = formatted.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+                
+                // Italic text: *text* -> <em>text</em> (but not bullet points)
+                formatted = formatted.replace(/(?<!\n)\*([^*\n]+?)\*(?!\*)/g, '<em>$1</em>');
+                
+                // Bullet points: * item -> <li>item</li>
+                formatted = formatted.replace(/^\s*\*\s+(.+)$/gm, '<li>$1</li>');
+                
+                // Wrap consecutive <li> elements in <ul>
+                formatted = formatted.replace(/(<li>.*?<\/li>)/gs, '<ul>$1</ul>');
+                
+                // Clean up multiple <ul> tags
+                formatted = formatted.replace(/<\/ul>\s*<ul>/g, '');
+                
+                // Convert line breaks to <br> tags
+                formatted = formatted.replace(/\n/g, '<br>');
+                
+                // Context references: (Context 1 & 2) -> <span class="context-ref">(Context 1 & 2)</span>
+                formatted = formatted.replace(/\(Context\s+\d+(?:\s*&\s*\d+)*\)/g, '<span class="context-ref">$&</span>');
+                
+                return formatted;
+            }
+
+            escapeHtml(text) {
+                const div = document.createElement('div');
+                div.textContent = text;
+                return div.innerHTML;
+            }
+        }
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', () => {
+            new RAGChatAssistant();
+        });
+    </script>
+</body>
+</html>

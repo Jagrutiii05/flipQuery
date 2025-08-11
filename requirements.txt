@@ -1,0 +1,16 @@
+Flask
+Werkzeug
+# langchain
+# langchain-openai
+# langchain-community
+openai
+pinecone
+PyPDF2
+tiktoken
+numpy
+sentence-transformers
+python-dotenv
+google-genai
+requests
+# pydantic==2.8.2
+# pydantic-core==2.20.1
